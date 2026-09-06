@@ -4,7 +4,9 @@
 - 查重用 NFKC 规范化后的 front，跨牌组比对；命中不自动合并，跳过并交给人决定
 - FSRS 初始状态等价于 ts-fsrs createEmptyCard：除 due 外全部取列默认值，不伪造数值
 - origin='manual' 配合 card_encounters(source='reading')，不占预装词库每日新卡额度
-- 首次复习时间为次日 00:00（Asia/Tokyo），与 addCard 的 startTomorrow 一致
+- 首次复习时间为导入时刻，即当天就进队列。这里刻意不用 addCard 的
+  startTomorrow：那条默认假设「你已经在别处学过了」，而自动导入发生在
+  你读新闻之前，app 里才是第一次接触
 
 既可当脚本跑（默认 dry-run，--apply 才写库），也可由 news_ai.py 导入 import_vocab()。
 """
@@ -47,11 +49,9 @@ def parse_vocab(md: str):
     return out
 
 
-def next_midnight_ms() -> int:
-    t = (datetime.now(TZ) + timedelta(days=1)).replace(
-        hour=0, minute=0, second=0, microsecond=0
-    )
-    return int(t.timestamp() * 1000)
+def first_study_ms() -> int:
+    """当天就可以复习：导入时刻即首次可进队列时间"""
+    return int(datetime.now(TZ).timestamp() * 1000)
 
 
 def resolve_day(con, date_str: str):
@@ -97,7 +97,7 @@ def import_vocab(markdown_path: str, deck_id: int = DECK_ID, day_index=None, app
         if not apply or not result["new"]:
             return result
 
-        due = next_midnight_ms()
+        due = first_study_ms()
         cur = con.cursor()
         cur.execute("BEGIN")
         try:
