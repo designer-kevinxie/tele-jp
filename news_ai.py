@@ -214,6 +214,34 @@ with open(output_path, "rb") as file:
         print(e)
 
 
+# =====================
+# 导入 N1 词汇到 100days 的 SRS 牌组
+# =====================
+# 整段包在 try 里：词库导入失败绝不能影响上面的新闻推送
+def send_telegram_text(text):
+    requests.post(
+        f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage",
+        data={"chat_id": CHAT_ID, "text": text},
+        timeout=60,
+    ).raise_for_status()
+
+
+try:
+    from nhk_to_srs import import_vocab, format_summary
+
+    srs_result = import_vocab(output_path, apply=True)
+    summary = format_summary(srs_result)
+    print(summary)
+    send_telegram_text(summary)
+except Exception as e:
+    # 撞词、锁库、路径变动都走这里，只提示不中断
+    print("词汇导入失败:", e)
+    try:
+        send_telegram_text(f"⚠️ 词汇导入失败：{e}")
+    except Exception:
+        pass
+
+
 
 # =====================
 # 自动 git push
