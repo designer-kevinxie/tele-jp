@@ -1,7 +1,8 @@
 import os
 import requests
 from dotenv import load_dotenv
-from datetime import datetime
+from datetime import datetime, timezone
+import calendar
 import cloudscraper
 import feedparser
 import requests
@@ -37,7 +38,10 @@ today = datetime.now().strftime("%Y-%m-%d")
 # =====================
 # 获取 NHK RSS (增加异常捕获)
 # =====================
-url = "https://www3.nhk.or.jp/rss/news/cat0.xml"#经济（5）
+# 注意：www3.nhk.or.jp 的 RSS 已经停止更新（一直返回旧内容），必须用 www.nhk.or.jp
+url = "https://www.nhk.or.jp/rss/news/cat0.xml"  # cat0 = 主要ニュース
+# 最新一条新闻超过这个天数，就认为 RSS 源已经失效
+MAX_NEWS_AGE_DAYS = 2
 scraper = cloudscraper.create_scraper()
 
 try:
@@ -55,9 +59,26 @@ if not feed.entries:
 
 
 # =====================
-# 取第一条新闻
+# 取最新一条新闻
 # =====================
-news = feed.entries[2]
+def entry_time(entry):
+    return getattr(entry, "published_parsed", None) or getattr(entry, "updated_parsed", None)
+
+# RSS 里的条目并不按时间排序，不能用固定下标，要按发布时间挑最新的
+dated = [e for e in feed.entries if entry_time(e)]
+if not dated:
+    print("新闻条目没有发布时间，无法判断新旧")
+    exit()
+
+news = max(dated, key=entry_time)
+
+# 源地址失效时 NHK 会一直返回同一份旧内容，这里挡住重复推送
+newest = datetime.fromtimestamp(calendar.timegm(entry_time(news)), tz=timezone.utc)
+age_days = (datetime.now(timezone.utc) - newest).days
+if age_days > MAX_NEWS_AGE_DAYS:
+    print(f"RSS 已 {age_days} 天没有更新（最新一条：{newest:%Y-%m-%d}），疑似源地址失效，本次跳过")
+    exit()
+
 title = news.title
 summary = news.description
 news_url = news.link

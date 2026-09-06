@@ -2,7 +2,7 @@ import cloudscraper
 import feedparser
 
 # RSS 地址
-url = "https://www3.nhk.or.jp/rss/news/cat0.xml"
+url = "https://www.nhk.or.jp/rss/news/cat0.xml"
 
 # 创建 scraper
 scraper = cloudscraper.create_scraper()
