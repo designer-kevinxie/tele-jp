@@ -3,6 +3,7 @@
 设计要点（对齐 100days 的 src/app/actions-srs.ts::addCard）：
 - 查重用 NFKC 规范化后的 front，跨牌组比对；命中不自动合并，跳过并交给人决定
 - FSRS 初始状态等价于 ts-fsrs createEmptyCard：除 due 外全部取列默认值，不伪造数值
+- 写入单独的「NHK 新闻词」牌组，不混进预装词库；按名字解析而非写死 id
 - origin='manual' 配合 card_encounters(source='reading')，不占预装词库每日新卡额度
 - 首次复习时间为导入时刻，即当天就进队列。这里刻意不用 addCard 的
   startTomorrow：那条默认假设「你已经在别处学过了」，而自动导入发生在
@@ -19,7 +20,7 @@ import unicodedata
 from datetime import datetime, timedelta, timezone
 
 DB = os.getenv("DAYS100_DB", "/root/apps/100days/data/app.db")
-DECK_ID = int(os.getenv("DAYS100_DECK_ID", "3"))
+DECK_NAME = os.getenv("DAYS100_DECK_NAME", "NHK 新闻词")
 EXAM_ID = int(os.getenv("DAYS100_EXAM_ID", "1"))
 PLAN_ID = int(os.getenv("DAYS100_PLAN_ID", "1"))
 TZ = timezone(timedelta(hours=9))  # Asia/Tokyo
@@ -54,6 +55,18 @@ def first_study_ms() -> int:
     return int(datetime.now(TZ).timestamp() * 1000)
 
 
+def resolve_deck(con, name: str) -> int:
+    """按名字取牌组 id。不写死 id：牌组被删掉重建后 id 会变，
+    写死会把卡悄悄塞进别的牌组，按名字找不到则显式报错。"""
+    row = con.execute(
+        "SELECT id FROM decks WHERE exam_id=? AND name=? AND kind='word'",
+        (EXAM_ID, name),
+    ).fetchone()
+    if not row:
+        raise RuntimeError(f"找不到词汇牌组「{name}」，请先在 app 里建好")
+    return row[0]
+
+
 def resolve_day(con, date_str: str):
     """按日历日期反查 100days 的 Day，拿不到就返回 (None, None)"""
     row = con.execute(
@@ -63,7 +76,7 @@ def resolve_day(con, date_str: str):
     return (row[0], row[1]) if row else (None, None)
 
 
-def import_vocab(markdown_path: str, deck_id: int = DECK_ID, day_index=None, apply=False):
+def import_vocab(markdown_path: str, deck_id=None, day_index=None, apply=False):
     """返回 {'new': [...], 'dup': [(词, [(front, 牌组)])], 'day_index': n, 'written': n}"""
     with open(markdown_path, encoding="utf-8-sig") as f:
         items = parse_vocab(f.read())
@@ -74,6 +87,8 @@ def import_vocab(markdown_path: str, deck_id: int = DECK_ID, day_index=None, app
 
     con = sqlite3.connect(DB)
     try:
+        if deck_id is None:
+            deck_id = resolve_deck(con, DECK_NAME)
         if day_index is None:
             _, day_index = resolve_day(con, datetime.now(TZ).strftime("%Y-%m-%d"))
             result["day_index"] = day_index
@@ -154,7 +169,7 @@ def format_summary(r) -> str:
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("markdown")
-    ap.add_argument("--deck-id", type=int, default=DECK_ID)
+    ap.add_argument("--deck-id", type=int, default=None)
     ap.add_argument("--day-index", type=int, default=None)
     ap.add_argument("--apply", action="store_true", help="不加则只做 dry-run")
     a = ap.parse_args()
